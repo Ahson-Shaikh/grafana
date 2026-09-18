@@ -1,12 +1,12 @@
 import { Controller, useFormContext } from 'react-hook-form';
 
-import { isValidRecordingRulesTarget } from '@grafana/alerting/internal';
 import { type DataSourceInstanceSettings } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Trans, t } from '@grafana/i18n';
 import { Field, Input, Stack, Text } from '@grafana/ui';
 import { DataSourcePicker } from 'app/features/datasources/components/picker/DataSourcePicker';
 
+import { useRecordingRulesTargetUids } from '../../hooks/useRecordingRulesTargetUids';
 import { RuleFormType, type RuleFormValues } from '../../types/rule-form';
 import { isCloudRecordingRuleByType, isGrafanaRecordingRuleByType, isRecordingRuleByType } from '../../utils/rules';
 
@@ -31,6 +31,8 @@ export const AlertRuleNameAndMetric = () => {
     formState: { errors },
     setValue,
   } = useFormContext<RuleFormValues>();
+
+  const recordingRulesTargetUids = useRecordingRulesTargetUids();
 
   const ruleFormType = watch('type');
   if (!ruleFormType) {
@@ -131,7 +133,7 @@ export const AlertRuleNameAndMetric = () => {
                   current={field.value}
                   noDefault
                   // Filter with `filter` prop instead of `type` prop to avoid showing the `-- Grafana --` data source
-                  filter={isValidRecordingRulesTarget}
+                  filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetUids.has(ds.uid)}
                   onChange={(ds: DataSourceInstanceSettings) => {
                     setValue('targetDatasourceUid', ds.uid);
                   }}

@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { Controller, useFormContext } from 'react-hook-form';
 import { useAsync, useToggle } from 'react-use';
 
-import { isSupportedExternalPrometheusFlavoredRulesSourceType, isValidRecordingRulesTarget } from '@grafana/alerting/internal';
+import { isSupportedExternalPrometheusFlavoredRulesSourceType } from '@grafana/alerting/internal';
 import { type DataSourceInstanceSettings } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Trans, t } from '@grafana/i18n';
@@ -27,6 +27,7 @@ import { DataSourcePicker } from 'app/features/datasources/components/picker/Dat
 import { ProvisioningAwareFolderPicker } from 'app/features/provisioning/components/Shared/ProvisioningAwareFolderPicker';
 import { type RulerRulesConfigDTO } from 'app/types/unified-alerting-dto';
 
+import { useRecordingRulesTargetUids } from '../../../hooks/useRecordingRulesTargetUids';
 import { DataSourceType } from '../../../utils/datasource';
 import { stringifyErrorLike } from '../../../utils/misc';
 import { CreateNewFolder } from '../../create-folder/CreateNewFolder';
@@ -67,6 +68,8 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
     clearErrors,
     formState: { errors },
   } = useFormContext<ImportFormValues>();
+
+  const recordingRulesTargetUids = useRecordingRulesTargetUids();
 
   const [
     rulesSource,
@@ -295,7 +298,7 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
                           onChange(ds.uid);
                           setValue('rulesDatasourceName', ds.name);
                           // Auto-populate target datasource if not yet selected
-                          if (!getValues('targetDatasourceUID') && isValidRecordingRulesTarget(ds)) {
+                          if (!getValues('targetDatasourceUID') && recordingRulesTargetUids.has(ds.uid)) {
                             setValue('targetDatasourceUID', ds.uid);
                           }
                         }}
@@ -483,7 +486,7 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
                     current={field.value}
                     inputId="recording-rules-target-data-source"
                     noDefault
-                    filter={isValidRecordingRulesTarget}
+                    filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetUids.has(ds.uid)}
                     onChange={(ds: DataSourceInstanceSettings) => {
                       setValue('targetDatasourceUID', ds.uid);
                     }}

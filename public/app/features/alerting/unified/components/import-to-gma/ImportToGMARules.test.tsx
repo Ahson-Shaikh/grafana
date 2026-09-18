@@ -55,11 +55,14 @@ describe('ImportToGMARules', () => {
   grantUserPermissions([AccessControlAction.AlertingRuleExternalRead, AccessControlAction.AlertingRuleCreate]);
   testWithFeatureToggles({ enable: ['alertingImportYAMLUI', 'alertingMigrationUI'] });
 
-  it('should render the import source options', () => {
+  it('should render the import source options', async () => {
     render(<ImportToGMARules />);
 
     expect(ui.importSource.existingDatasource.get()).toBeInTheDocument();
     expect(ui.importSource.yaml.get()).toBeInTheDocument();
+
+    // Flush the recording-rules-target-uids fetch so it doesn't resolve outside act() in a later test.
+    await waitFor(() => expect(ui.dsImport.dsPicker.get()).toBeInTheDocument());
   });
 
   describe('existing datasource', () => {
