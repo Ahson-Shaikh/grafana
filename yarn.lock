@@ -2342,6 +2342,7 @@ __metadata:
     "@faker-js/faker": "npm:^10.6.0"
     "@grafana/api-clients": "npm:13.3.0-pre"
     "@grafana/i18n": "npm:13.3.0-pre"
+    "@grafana/plugin-compat": "workspace:*"
     "@grafana/test-utils": "workspace:*"
     "@reduxjs/toolkit": "npm:^2.10.1"
     "@testing-library/jest-dom": "npm:^6.6.3"
@@ -2761,7 +2762,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@grafana/plugin-compat@workspace:packages/grafana-plugin-compat":
+"@grafana/plugin-compat@workspace:*, @grafana/plugin-compat@workspace:packages/grafana-plugin-compat":
   version: 0.0.0-use.local
   resolution: "@grafana/plugin-compat@workspace:packages/grafana-plugin-compat"
   dependencies:

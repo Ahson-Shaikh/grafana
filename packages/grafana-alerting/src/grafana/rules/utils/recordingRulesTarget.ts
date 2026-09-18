@@ -1,4 +1,5 @@
-import { type DataSourceInstanceSettings, type DataSourceJsonData } from '@grafana/data';
+import { type DataSourceInstanceListItem, type DataSourceInstanceSettings, type DataSourceJsonData } from '@grafana/data';
+import { getDataSourceInstanceList, getDataSourceInstanceSettings } from '@grafana/plugin-compat/datasources';
 
 export const SUPPORTED_EXTERNAL_PROMETHEUS_FLAVORED_RULE_SOURCE_TYPES = [
   'prometheus',
@@ -24,4 +25,22 @@ export function isDataSourceAllowedAsRecordingRulesTarget(ds: DataSourceInstance
 
 export function isValidRecordingRulesTarget(ds: DataSourceInstanceSettings<DataSourceJsonData>): boolean {
   return isSupportedExternalPrometheusFlavoredRulesSourceType(ds.type) && isDataSourceAllowedAsRecordingRulesTarget(ds);
+}
+
+/**
+ * The data sources allowed as recording rule targets. Callers should test membership by `uid` —
+ * the list items don't carry `jsonData`, which is only needed internally to compute this list.
+ */
+export async function getRecordingRulesTargetDataSources(): Promise<DataSourceInstanceListItem[]> {
+  const candidates = await getDataSourceInstanceList({
+    type: [...SUPPORTED_EXTERNAL_PROMETHEUS_FLAVORED_RULE_SOURCE_TYPES],
+    all: true,
+  });
+
+  const settingsByUid = await Promise.all(candidates.map((item) => getDataSourceInstanceSettings(item.uid)));
+
+  return candidates.filter((_, index) => {
+    const settings = settingsByUid[index];
+    return settings ? isDataSourceAllowedAsRecordingRulesTarget(settings) : true;
+  });
 }
