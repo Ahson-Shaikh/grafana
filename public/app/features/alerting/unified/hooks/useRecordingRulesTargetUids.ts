@@ -1,6 +1,6 @@
 import { useAsync } from 'react-use';
 
-import { getRecordingRulesTargetDataSources } from '@grafana/alerting/internal';
+import { getRecordingRulesTargetDataSources } from '@grafana/alerting/unstable';
 
 const EMPTY_UIDS = new Set<string>();
 

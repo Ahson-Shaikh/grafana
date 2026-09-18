@@ -10,7 +10,6 @@ export {
   isSupportedExternalPrometheusFlavoredRulesSourceType,
   isDataSourceAllowedAsRecordingRulesTarget,
   isValidRecordingRulesTarget,
-  getRecordingRulesTargetDataSources,
 } from './grafana/rules/utils/recordingRulesTarget';
 
 export default {};
