@@ -130,8 +130,8 @@ func TranslateTrashQuery(q *searchv0.TrashQuery, gvr schema.GroupVersionResource
 // fieldSet is the set of fields referenceable in a request, keyed by public
 // name, with the capabilities each field supports.
 type fieldSet struct {
-	byName      map[string]resource.SearchFieldDefinition
-	allowLabels bool
+	byName          map[string]resource.SearchFieldDefinition
+	allowLabelRegex bool
 }
 
 func newFieldSet(gvr schema.GroupVersionResource, provider resource.SearchFieldsProvider) *fieldSet {
@@ -144,13 +144,13 @@ func newFieldSet(gvr schema.GroupVersionResource, provider resource.SearchFields
 			m[d.Name] = d
 		}
 	}
-	return &fieldSet{byName: m, allowLabels: true}
+	return &fieldSet{byName: m, allowLabelRegex: true}
 }
 
 // labelFieldKey reports the metadata label key targeted by a public field name.
 // A declared field with the same name keeps its declared meaning.
 func labelFieldKey(fs *fieldSet, name string) (string, bool) {
-	if !fs.allowLabels {
+	if !fs.allowLabelRegex {
 		return "", false
 	}
 	if _, declared := fs.byName[name]; declared {
@@ -200,7 +200,7 @@ func trashFieldSet() *fieldSet {
 		trashFieldDeletedBy:    trash[trashFieldDeletedBy],
 		trashFieldDeletionTime: trash[trashFieldDeletionTime],
 		trashFieldDeletedRV:    trash[trashFieldDeletedRV],
-	}}
+	}, allowLabelRegex: false}
 }
 
 func validateEnvelope(tm metav1.TypeMeta, wantKind string) field.ErrorList {
@@ -394,7 +394,7 @@ func validateRegexLeaf(r *searchv0.RegexPredicate, fs *fieldSet, p *field.Path) 
 	case labelField:
 		// Metadata label values are keyword strings, so the declared-field
 		// capability and type checks do not apply.
-	case !declaredField && fs.allowLabels && strings.HasPrefix(r.Field, "labels."):
+	case !declaredField && fs.allowLabelRegex && strings.HasPrefix(r.Field, "labels."):
 		errs = append(errs, field.Invalid(p.Child("field"), r.Field, "labels. must be followed by a valid metadata label key"))
 	default:
 		capErrs := checkCapability(fs, r.Field, resource.SearchCapabilityFilter, p.Child("field"))
