@@ -171,6 +171,7 @@ export interface ColumnBuildConfig {
   maxRowHeight?: number;
   numFrozenColsFullyInView: number;
   onCellFilterAdded?: TableFilterActionCallback;
+  onCellAddToAssistant?: (frame: DataFrame, field: Field, rowIndex: number) => void;
   rowHeight: NonNullable<CSSProperties['height']> | ((row: TableRow) => number);
   rowHeightFn: (row: TableRow) => number;
   setFilter: Dispatch<SetStateAction<FilterType>>;
@@ -260,6 +261,7 @@ function buildColumnsFromFields(
     gridRef,
     getCellActions,
     onCellFilterAdded,
+    onCellAddToAssistant,
     frozenColumns,
     numFrozenColsFullyInView,
     maxRowHeight,
@@ -343,7 +345,8 @@ function buildColumnsFromFields(
 
     const cellInspect = isCellInspectEnabled(field);
     const showFilters = Boolean(field.config.filterable && onCellFilterAdded != null);
-    const showActions = cellInspect || showFilters;
+    const showAssistant = tableRefreshEnabled && onCellAddToAssistant != null;
+    const showActions = cellInspect || showFilters || showAssistant;
     const width = widths[i];
     const contentWidth =
       width -
@@ -481,6 +484,7 @@ function buildColumnsFromFields(
               className={cellActionClassName}
               setInspectCell={setInspectCell}
               onCellFilterAdded={onCellFilterAdded}
+              onAddToAssistant={showAssistant ? () => onCellAddToAssistant?.(frame, field, rowIdx) : undefined}
             />
           )}
         </>
