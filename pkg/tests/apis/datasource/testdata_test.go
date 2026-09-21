@@ -51,7 +51,7 @@ func TestIntegrationTestDatasource(t *testing.T) {
 		},
 		UnifiedStorageConfig: map[string]setting.UnifiedStorageConfig{
 			"datasources.grafana-testdata-datasource.datasource.grafana.app": {
-				DualWriterMode: grafanarest.Mode0,
+				DualWriterMode: grafanarest.Mode2, // write both get errors
 			},
 		},
 	})

@@ -37,6 +37,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/validations"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/storage/unified/apistore"
+	"github.com/grafana/grafana/pkg/storage/unified/resourcepb"
 )
 
 var (
@@ -297,15 +298,26 @@ func (b *DataSourceAPIBuilder) UpdateAPIGroupInfo(apiGroupInfo *genericapiserver
 			// Keep them for now, but we should get rid of them when possible
 			DeprecatedInternalID: apistore.DeprecatedID_Required,
 
+			// Always use the same group
+			ModifyKey: func(rk *resourcepb.ResourceKey) error {
+				rk.Group = datasourceV0.GROUP
+				return nil
+			},
+
 			// Avoid using the codec serializer -- we have multiple GVKs registered to the same go type
 			Serializer: apistore.JSONSerializer(),
 		})
-		// NOTE! there is currently NO PATH that is using unified storage to read!
 		unified, err := grafanaregistry.NewRegistryStore(opts.Scheme, ds, optsGetter)
 		if err != nil {
 			return err
 		}
-		b.store, err = opts.DualWriteBuilder(ds.GroupResource(), legacyStore, unified)
+		b.store, err = opts.DualWriteBuilder(ds.GroupResource(), legacyStore,
+			// the wrapper maps all apis to datasource.grafana.app/.../datasources
+			&storageWrapper{
+				Storage: unified,
+				gv:      b.GetGroupVersion(),
+			},
+		)
 		if err != nil {
 			return err
 		}

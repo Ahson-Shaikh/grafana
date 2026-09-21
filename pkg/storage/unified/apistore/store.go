@@ -92,6 +92,11 @@ type StorageOptions struct {
 	// through it unless GVK is declared, in which case writes preserve the object's GVK.
 	Serializer Serializer
 
+	// Optionally modify the real storage key (used for datasources+apps that share a resource)
+	// With datasources, the group is always "datasource.grafana.app"
+	// With datasources, the group is "plugins.grafana.app" and the name is the plugin type
+	ModifyKey func(*resourcepb.ResourceKey) error
+
 	// Required to force unique constraints
 	Index resourcepb.ResourceIndexClient
 
@@ -258,6 +263,19 @@ func NewStorage(
 				Resource:  k.Resource,
 				Name:      k.Name,
 			}, err
+		}
+	}
+
+	// Modify the storage key
+	if opts.ModifyKey != nil {
+		before := s.getKey
+		s.getKey = func(s string) (*resourcepb.ResourceKey, error) {
+			k, err := before(s)
+			if err != nil {
+				return nil, err
+			}
+			err = opts.ModifyKey(k)
+			return k, err
 		}
 	}
 
