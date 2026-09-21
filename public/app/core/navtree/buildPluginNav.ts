@@ -1,4 +1,4 @@
-import { cloneDeep } from 'lodash';
+import { cloneDeep, isUndefined, omitBy } from 'lodash';
 
 import {
   type AppPluginConfig,
@@ -7,11 +7,13 @@ import {
   type PluginInclude,
   PluginIncludeType,
 } from '@grafana/data';
+import { config } from '@grafana/runtime';
 import { contextSrv } from 'app/core/services/context_srv';
 import { AccessControlAction } from 'app/types/accessControl';
 
+import { appNavConfigFor } from './appNavConfig';
 import { buildStaticNavTree } from './buildStaticNavTree';
-import { MORE_APPS_SHELL, NavID, NavWeight } from './constants';
+import { NavID, NavWeight, PLUGIN_SECTION_SHELLS } from './constants';
 import { appendIntoSection, applyAppSubUrl, pluginPageId, pruneEmptyNavSections, sortNavTree } from './utils';
 
 /**
@@ -19,12 +21,14 @@ import { appendIntoSection, applyAppSubUrl, pluginPageId, pruneEmptyNavSections,
  * tree. The Go equivalent is addAppLinks in
  * pkg/services/navtree/navtreeimpl/applinks.go.
  *
- * Every app lands in "More apps" under its own plugin.json name.
+ * Apps are placed in the section their nav config names, falling back to
+ * "More apps" under their own plugin.json name.
  *
- * Permanent divergences from the Go builder: per-org plugin enablement and the
- * assistant's jsonData gating are not readable client-side; includes are
- * appended flat rather than nested under their path ancestor; and page includes
- * with no path have no URL to link to.
+ * Permanent divergences from the Go builder: per-org plugin enablement is not
+ * readable client-side, and nor is the assistant's jsonData gating beyond the
+ * deployment-mode half reproduced in APP_NAV_CONFIG; includes are appended flat
+ * rather than nested under their path ancestor; and page includes with no path
+ * have no URL to link to.
  */
 export function mergePluginNavIntoTree(apps: AppPluginConfig[]): NavModelItem[] {
   // Build a fresh static tree rather than merging into the current slice
@@ -47,24 +51,32 @@ export function mergePluginNavIntoTree(apps: AppPluginConfig[]): NavModelItem[] 
 
 /**
  * Builds the nav items for one app plugin and returns a new tree with the app
- * link placed into the "More apps" section. An app with no accessible nav
- * children is not part of the tree.
+ * link placed into its section.
  */
 function addAppToTree(tree: NavModelItem[], app: AppPluginConfig): NavModelItem[] {
-  const appLink = buildAppLink(app);
-  if ((appLink.children ?? []).length === 0) {
+  const { appLink, hasAccessiblePages } = buildAppLink(app);
+
+  // A `singlePage` app's only page folds into the app link itself, leaving it
+  // childless; it is still placed (as a leaf) as long as the page passed its
+  // access checks. Any other childless app is not part of the nav tree.
+  const placeAsLeaf = Boolean(appNavConfigFor(app.id)?.singlePage) && hasAccessiblePages;
+  if ((appLink.children ?? []).length === 0 && !placeAsLeaf) {
     return tree;
   }
-  return placeInMoreApps(tree, appLink);
+
+  const link = placeAsLeaf ? { ...appLink, isSection: false } : appLink;
+  return placeAppInSection(tree, app, withAppNavConfig(app, link));
 }
 
 /** Builds the app's nav link from its page and dashboard includes */
-function buildAppLink(app: AppPluginConfig): NavModelItem {
+function buildAppLink(app: AppPluginConfig): { appLink: NavModelItem; hasAccessiblePages: boolean } {
   let appUrl = `/a/${app.id}`;
+  let hasAccessiblePages = false;
   const children: NavModelItem[] = [];
+  const filterInclude = appNavConfigFor(app.id)?.filterInclude;
 
   for (const include of app.includes ?? []) {
-    if (!hasAccessToInclude(include)) {
+    if (!hasAccessToInclude(include) || (filterInclude && !filterInclude(include))) {
       continue;
     }
 
@@ -83,6 +95,7 @@ function buildAppLink(app: AppPluginConfig): NavModelItem {
     if (include.type !== PluginIncludeType.page || !include.path) {
       continue;
     }
+    hasAccessiblePages = true;
 
     if (include.defaultNav && include.addToNav) {
       appUrl = include.path;
@@ -99,26 +112,79 @@ function buildAppLink(app: AppPluginConfig): NavModelItem {
   }
 
   return {
-    text: app.name ?? app.id,
-    id: pluginPageId(app.id),
-    img: app.info?.logos?.small,
-    subTitle: app.info?.description,
-    sortWeight: NavWeight.plugin,
-    isSection: true,
-    pluginId: app.id,
-    url: appUrl,
-    // Children matching the app default nav are folded into the app link itself
-    children: children.filter((child) => child.url !== appUrl),
+    appLink: {
+      text: app.name ?? app.id,
+      id: pluginPageId(app.id),
+      img: app.info?.logos?.small,
+      subTitle: app.info?.description,
+      sortWeight: NavWeight.plugin,
+      isSection: true,
+      pluginId: app.id,
+      url: appUrl,
+      // Children matching the app default nav are folded into the app link itself
+      children: children.filter((child) => child.url !== appUrl),
+    },
+    hasAccessiblePages,
+  };
+}
+
+/** Applies the app's built-in nav config: placement, weight and display overrides */
+function withAppNavConfig(app: AppPluginConfig, appLink: NavModelItem): NavModelItem {
+  const navConfig = appNavConfigFor(app.id);
+  if (!navConfig) {
+    return appLink;
+  }
+  const { sortWeight, text, subTitle, isNew, icon } = navConfig;
+  return {
+    ...appLink,
+    sortWeight,
+    // Absent overrides must not clobber the plugin's own values with undefined
+    ...omitBy({ text, subTitle, isNew }, isUndefined),
+    ...(icon && { icon: toIconName(icon) }),
   };
 }
 
 /**
- * Appends the app link to the "More apps" section, creating that section from
- * its shell if this is the first app to be merged in. Returns a new tree.
+ * Places the app link into its configured section (default "More apps"),
+ * creating the section from its shell if this is the first app targeting it.
+ * Returns a new tree.
  */
-function placeInMoreApps(tree: NavModelItem[], appLink: NavModelItem): NavModelItem[] {
-  const placed = appendIntoSection(tree, NavID.apps, [appLink]);
-  return placed ?? [...tree, { ...MORE_APPS_SHELL, children: [appLink] }];
+function placeAppInSection(tree: NavModelItem[], app: AppPluginConfig, appLink: NavModelItem): NavModelItem[] {
+  const navConfig = appNavConfigFor(app.id);
+  const sectionId = navConfig?.sectionId ?? NavID.apps;
+
+  const sectionChildren = [appLink];
+
+  const placed = appendIntoSection(tree, sectionId, sectionChildren);
+  if (placed) {
+    return placed;
+  }
+
+  const shellConfig = PLUGIN_SECTION_SHELLS[sectionId];
+  if (!shellConfig) {
+    console.warn('[navtree] plugin app nav id not found', app.id, sectionId);
+    return tree;
+  }
+  const { shell, absorbs = [], imgFromAppLogo } = shellConfig;
+
+  // Core sections the shell absorbs (e.g. Alerting into Alerts & IRM) move
+  // from the top level into the new section, at their configured weight
+  const absorbed = absorbs
+    .map(({ id, sortWeight }) => {
+      const node = tree.find((candidate) => candidate.id === id);
+      return node && { ...node, sortWeight };
+    })
+    .filter((node) => node !== undefined);
+  const absorbedIds = new Set(absorbed.map((node) => node.id));
+
+  return [
+    ...tree.filter((node) => !absorbedIds.has(node.id)),
+    {
+      ...shell,
+      children: [...absorbed, ...sectionChildren],
+      ...(imgFromAppLogo && app.info?.logos && { img: config.appSubUrl + app.info.logos.large }),
+    },
+  ];
 }
 
 /**
