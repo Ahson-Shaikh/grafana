@@ -644,9 +644,9 @@ func TestRepositoryController_updateDeleteStatus_UsesAddOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRepositoryController_updateDeleteStatus_UsesNonEmptyFoldersError(t *testing.T) {
-	folderErr := &nonEmptyFoldersError{
-		folders: []*provisioning.ResourceListItem{{Name: "folder-1", Title: "Folder one"}},
+func TestRepositoryController_updateDeleteStatus_UsesNonEmptyFolderError(t *testing.T) {
+	folderErr := &nonEmptyFolderError{
+		folder: &provisioning.ResourceListItem{Name: "folder-1", Title: "Folder one"},
 	}
 	patcher := mocks.NewStatusPatcher(t)
 	patcher.On("Patch", mock.Anything, mock.AnythingOfType("*v0alpha1.Repository"), mock.MatchedBy(func(op map[string]interface{}) bool {

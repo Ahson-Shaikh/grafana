@@ -473,9 +473,9 @@ func (rc *RepositoryController) handleDelete(ctx context.Context, obj *provision
 }
 
 func (rc *RepositoryController) updateDeleteStatus(ctx context.Context, obj *provisioning.Repository, err error) error {
-	var folderErr *nonEmptyFoldersError
+	var folderErr *nonEmptyFolderError
 	if errors.As(err, &folderErr) {
-		// nonEmptyFoldersError is ready for users; omit internal operation prefixes.
+		// nonEmptyFolderError is ready for users; omit internal operation prefixes.
 		err = folderErr
 	}
 

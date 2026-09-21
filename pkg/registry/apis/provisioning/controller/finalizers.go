@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -187,35 +186,19 @@ func (f *finalizer) processResourceItems(ctx context.Context, items []*provision
 // preserving the order within each group.
 var splitItems = resources.SplitItems
 
-type nonEmptyFoldersError struct {
-	folders []*provisioning.ResourceListItem
+type nonEmptyFolderError struct {
+	folder *provisioning.ResourceListItem
 }
 
-func (e *nonEmptyFoldersError) Error() string {
-	labels := make([]string, 0, len(e.folders))
-	for _, folder := range e.folders {
-		label := folder.Name
-		if folder.Title != "" && folder.Title != folder.Name {
-			label = fmt.Sprintf("%q (UID: %s)", folder.Title, folder.Name)
-		}
-		labels = append(labels, label)
+func (e *nonEmptyFolderError) Error() string {
+	label := e.folder.Name
+	if e.folder.Title != "" && e.folder.Title != e.folder.Name {
+		label = fmt.Sprintf("%q (UID: %s)", e.folder.Title, e.folder.Name)
 	}
-	slices.Sort(labels)
-
-	const limit = 10
-	more := len(labels) - limit
-	if more > 0 {
-		labels = labels[:limit]
-	}
-
-	message := fmt.Sprintf(
-		"Repository deletion is blocked because these folders contain resources not managed by this repository:\n\n- %s",
-		strings.Join(labels, "\n- "),
+	return fmt.Sprintf(
+		"Repository deletion is blocked because folder %s contains resources not managed by this repository. Remove or move the remaining resources from this folder. Grafana will retry automatically.",
+		label,
 	)
-	if more > 0 {
-		message += fmt.Sprintf("\n(+ %d more)", more)
-	}
-	return message + "\n\nRemove or move the remaining resources from these folders. Grafana will retry automatically."
 }
 
 // deleteExistingItems removes all resources managed by the repository.
@@ -246,11 +229,13 @@ func (f *finalizer) deleteExistingItems(
 		return count, err
 	}
 
-	blockedFolders := make([]*provisioning.ResourceListItem, 0)
+	var blocked *nonEmptyFolderError
 	for _, folder := range folderItems {
 		err := process(ctx, folder)
 		if resources.IsFolderNotEmptyAPIError(err) {
-			blockedFolders = append(blockedFolders, folder)
+			if blocked == nil {
+				blocked = &nonEmptyFolderError{folder: folder}
+			}
 			continue
 		}
 		if err != nil {
@@ -258,8 +243,8 @@ func (f *finalizer) deleteExistingItems(
 		}
 		count++
 	}
-	if len(blockedFolders) > 0 {
-		return count, &nonEmptyFoldersError{folders: blockedFolders}
+	if blocked != nil {
+		return count, blocked
 	}
 
 	logger.Info("deleted items", "items", count)
