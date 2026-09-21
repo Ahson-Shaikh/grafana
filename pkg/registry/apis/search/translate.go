@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -79,7 +80,7 @@ func TranslateSearchQuery(q *searchv0.SearchQuery, gvr schema.GroupVersionResour
 	}
 
 	req := newRequest(gvr, namespace)
-	applyLeaves(req, leaves)
+	applyLeaves(req, leaves, fs)
 	applyLabelSelector(req, q.LabelSelector)
 	applySort(req, q.Sort, hasTextLeaf(leaves), &resourcepb.ResourceSearchRequest_Sort{Field: resource.SEARCH_FIELD_NAME})
 	req.Fields = defaultReturnFields(q.Fields)
@@ -116,7 +117,7 @@ func TranslateTrashQuery(q *searchv0.TrashQuery, gvr schema.GroupVersionResource
 
 	req := newRequest(gvr, namespace)
 	req.IsDeleted = true
-	applyLeaves(req, leaves)
+	applyLeaves(req, leaves, fs)
 	// Trash's default order is deletion_time desc (search uses name asc); when a
 	// text query is present both fall back to relevance instead.
 	applySort(req, q.Sort, hasTextLeaf(leaves), &resourcepb.ResourceSearchRequest_Sort{Field: trashFieldDeletionTime, Desc: true})
@@ -129,7 +130,8 @@ func TranslateTrashQuery(q *searchv0.TrashQuery, gvr schema.GroupVersionResource
 // fieldSet is the set of fields referenceable in a request, keyed by public
 // name, with the capabilities each field supports.
 type fieldSet struct {
-	byName map[string]resource.SearchFieldDefinition
+	byName      map[string]resource.SearchFieldDefinition
+	allowLabels bool
 }
 
 func newFieldSet(gvr schema.GroupVersionResource, provider resource.SearchFieldsProvider) *fieldSet {
@@ -142,7 +144,23 @@ func newFieldSet(gvr schema.GroupVersionResource, provider resource.SearchFields
 			m[d.Name] = d
 		}
 	}
-	return &fieldSet{byName: m}
+	return &fieldSet{byName: m, allowLabels: true}
+}
+
+// labelFieldKey reports the metadata label key targeted by a public field name.
+// A declared field with the same name keeps its declared meaning.
+func labelFieldKey(fs *fieldSet, name string) (string, bool) {
+	if !fs.allowLabels {
+		return "", false
+	}
+	if _, declared := fs.byName[name]; declared {
+		return "", false
+	}
+	key, found := strings.CutPrefix(name, "labels.")
+	if !found || key == "" || len(content.IsLabelKey(key)) > 0 {
+		return "", false
+	}
+	return key, true
 }
 
 // trashFieldSet is the fixed uniform field set for /trash, expressed as a
@@ -368,9 +386,17 @@ func validateLeaf(n *searchv0.WhereNode, key string, fs *fieldSet, p *field.Path
 // here re-implements that parser.
 func validateRegexLeaf(r *searchv0.RegexPredicate, fs *fieldSet, p *field.Path) field.ErrorList {
 	errs := field.ErrorList{}
-	if r.Field == "" {
+	_, labelField := labelFieldKey(fs, r.Field)
+	_, declaredField := fs.byName[r.Field]
+	switch {
+	case r.Field == "":
 		errs = append(errs, field.Required(p.Child("field"), "regex field is required"))
-	} else {
+	case labelField:
+		// Metadata label values are keyword strings, so the declared-field
+		// capability and type checks do not apply.
+	case !declaredField && fs.allowLabels && strings.HasPrefix(r.Field, "labels."):
+		errs = append(errs, field.Invalid(p.Child("field"), r.Field, "labels. must be followed by a valid metadata label key"))
+	default:
 		capErrs := checkCapability(fs, r.Field, resource.SearchCapabilityFilter, p.Child("field"))
 		errs = append(errs, capErrs...)
 		if len(capErrs) == 0 {
@@ -618,7 +644,7 @@ func hasTextLeaf(leaves []searchv0.WhereNode) bool {
 // backend prerequisite; this includes routing exact filters on text-capable
 // fields (e.g. title) to their keyword variant so In/NotIn stay exact. Pure
 // keyword fields (folder, tags, name, ...) already work unprefixed.
-func applyLeaves(req *resourcepb.ResourceSearchRequest, leaves []searchv0.WhereNode) {
+func applyLeaves(req *resourcepb.ResourceSearchRequest, leaves []searchv0.WhereNode, fs *fieldSet) {
 	for i := range leaves {
 		n := leaves[i]
 		switch {
@@ -629,9 +655,19 @@ func applyLeaves(req *resourcepb.ResourceSearchRequest, leaves []searchv0.WhereN
 		case n.Range != nil:
 			req.Options.Fields = append(req.Options.Fields, rangeRequirements(n.Range)...)
 		case n.Regex != nil:
+			if key, ok := labelFieldKey(fs, n.Regex.Field); ok {
+				req.Options.Labels = append(req.Options.Labels, labelRegexRequirement(key, n.Regex))
+				break
+			}
 			req.Options.Fields = append(req.Options.Fields, regexRequirement(n.Regex))
 		}
 	}
+}
+
+func labelRegexRequirement(key string, r *searchv0.RegexPredicate) *resourcepb.Requirement {
+	req := regexRequirement(r)
+	req.Key = key
+	return req
 }
 
 func regexRequirement(r *searchv0.RegexPredicate) *resourcepb.Requirement {

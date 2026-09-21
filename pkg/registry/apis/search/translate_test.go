@@ -13,6 +13,7 @@ import (
 
 	searchv0 "github.com/grafana/grafana/pkg/apis/search/v0alpha1"
 	"github.com/grafana/grafana/pkg/storage/unified/resource"
+	"github.com/grafana/grafana/pkg/storage/unified/resourcepb"
 )
 
 var dashboardsGVR = schema.GroupVersionResource{
@@ -152,6 +153,51 @@ func TestTranslateSearchQuery_Regex(t *testing.T) {
 	assert.Equal(t, "panel_type", req.Options.Fields[1].Key)
 	assert.Equal(t, string(resource.OperatorNotRegex), req.Options.Fields[1].Operator)
 	assert.Equal(t, []string{"row|graph"}, req.Options.Fields[1].Values)
+}
+
+func TestTranslateSearchQuery_LabelRegex(t *testing.T) {
+	q := searchQuery(&searchv0.WhereNode{
+		And: []searchv0.WhereNode{
+			{Regex: &searchv0.RegexPredicate{Field: "labels.team", Pattern: "Team.*"}},
+			{Regex: &searchv0.RegexPredicate{Field: "labels.grafana.app/env", Pattern: "prod-.*", Negate: true}},
+		},
+	})
+
+	req, errs := TranslateSearchQuery(q, dashboardsGVR, "default", testProvider())
+	require.Empty(t, errs)
+	assert.Empty(t, req.Options.Fields)
+	require.Len(t, req.Options.Labels, 2)
+	assert.Equal(t, &resourcepb.Requirement{Key: "team", Operator: string(resource.OperatorRegex), Values: []string{"Team.*"}}, req.Options.Labels[0])
+	assert.Equal(t, &resourcepb.Requirement{Key: "grafana.app/env", Operator: string(resource.OperatorNotRegex), Values: []string{"prod-.*"}}, req.Options.Labels[1])
+}
+
+func TestTranslateSearchQuery_DeclaredLabelsFieldKeepsItsMeaning(t *testing.T) {
+	provider := &fakeProvider{fields: []resource.SearchFieldDefinition{
+		{
+			Name:         "labels",
+			Type:         resource.SearchFieldTypeString,
+			Array:        true,
+			Capabilities: []resource.SearchCapability{resource.SearchCapabilityFilter},
+		},
+		{
+			Name:         "labels.declared",
+			Type:         resource.SearchFieldTypeString,
+			Capabilities: []resource.SearchCapability{resource.SearchCapabilityFilter},
+		},
+	}}
+	q := searchQuery(&searchv0.WhereNode{And: []searchv0.WhereNode{
+		{Regex: &searchv0.RegexPredicate{Field: "labels", Pattern: "team=.*"}},
+		{Regex: &searchv0.RegexPredicate{Field: "labels.declared", Pattern: "field-value"}},
+		{Regex: &searchv0.RegexPredicate{Field: "labels.team", Pattern: "Team.*"}},
+	}})
+
+	req, errs := TranslateSearchQuery(q, dashboardsGVR, "default", provider)
+	require.Empty(t, errs)
+	require.Len(t, req.Options.Fields, 2)
+	assert.Equal(t, "labels", req.Options.Fields[0].Key)
+	assert.Equal(t, "labels.declared", req.Options.Fields[1].Key)
+	require.Len(t, req.Options.Labels, 1)
+	assert.Equal(t, "team", req.Options.Labels[0].Key)
 }
 
 func TestTranslateSearchQuery_SingleLeaf(t *testing.T) {
@@ -447,6 +493,27 @@ func TestTranslateSearchQuery_ValidationErrors(t *testing.T) {
 			wantField: "where.regex.pattern",
 		},
 		{
+			name: "label regex with an empty key",
+			mutate: func(q *searchv0.SearchQuery) {
+				q.Where = &searchv0.WhereNode{Regex: &searchv0.RegexPredicate{Field: "labels.", Pattern: "a.*"}}
+			},
+			wantField: "where.regex.field",
+		},
+		{
+			name: "label regex with an invalid key",
+			mutate: func(q *searchv0.SearchQuery) {
+				q.Where = &searchv0.WhereNode{Regex: &searchv0.RegexPredicate{Field: "labels.bad key", Pattern: "a.*"}}
+			},
+			wantField: "where.regex.field",
+		},
+		{
+			name: "label regex with an empty pattern",
+			mutate: func(q *searchv0.SearchQuery) {
+				q.Where = &searchv0.WhereNode{Regex: &searchv0.RegexPredicate{Field: "labels.team"}}
+			},
+			wantField: "where.regex.pattern",
+		},
+		{
 			name: "whitespace-only text value",
 			mutate: func(q *searchv0.SearchQuery) {
 				q.Where = &searchv0.WhereNode{Text: &searchv0.TextPredicate{Value: "   "}}
@@ -658,6 +725,13 @@ func TestTranslateTrashQuery_ValidationErrors(t *testing.T) {
 				q.Where = &searchv0.WhereNode{Text: &searchv0.TextPredicate{Value: "x", Fields: []string{"folder"}}}
 			},
 			wantField: "where.text.fields[0]",
+		},
+		{
+			name: "regex on metadata label",
+			mutate: func(q *searchv0.TrashQuery) {
+				q.Where = &searchv0.WhereNode{Regex: &searchv0.RegexPredicate{Field: "labels.team", Pattern: "Team.*"}}
+			},
+			wantField: "where.regex.field",
 		},
 		{
 			name:      "return disallowed field",

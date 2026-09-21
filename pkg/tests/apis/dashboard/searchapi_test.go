@@ -107,6 +107,24 @@ func TestIntegrationSearchAPI(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	labelSets := map[string]map[string]string{
+		"searchapi-labels-team":  {"team": "TeamAlpha", "grafana.app/area": "foo"},
+		"searchapi-labels-case":  {"team": "teamAlpha", "grafana.app/area": "foo-bar"},
+		"searchapi-labels-other": {"team": "Other"},
+	}
+	for name, labels := range labelSets {
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"spec": map[string]any{"title": name, "schemaVersion": 41},
+		}}
+		obj.SetName(name)
+		obj.SetAPIVersion(gvr.GroupVersion().String())
+		obj.SetKind("Dashboard")
+		obj.SetAnnotations(map[string]string{utils.AnnoKeyFolder: folderUID})
+		obj.SetLabels(labels)
+		_, err := admin.Resource.Create(ctx, obj, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+
 	// Per-item authorization decides what a non-admin sees, so a viewer granted
 	// View on the folder gets the dashboards in it.
 	t.Run("a viewer sees what they were granted", func(t *testing.T) {
@@ -304,6 +322,41 @@ func TestIntegrationSearchAPI(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 		assert.Contains(t, names(notEu), "searchapi-tags-prod")
 		assert.NotContains(t, names(notEu), "searchapi-tags-both")
+	})
+
+	t.Run("regex targets one metadata label", func(t *testing.T) {
+		team, code := search(t, ctx, helper.Org1.Admin, gvr, searchV0.SearchQuery{
+			Where: &searchV0.WhereNode{
+				Regex: &searchV0.RegexPredicate{Field: "labels.team", Pattern: "Team.*"},
+			},
+			Limit: 20,
+		})
+		require.Equal(t, http.StatusOK, code)
+		assert.Equal(t, []string{"searchapi-labels-team"}, names(team))
+
+		// Qualified label keys stay intact after the public labels. prefix is
+		// removed. Whole-value matching keeps foo from also matching foo-bar.
+		area, code := search(t, ctx, helper.Org1.Admin, gvr, searchV0.SearchQuery{
+			Where: &searchV0.WhereNode{
+				Regex: &searchV0.RegexPredicate{Field: "labels.grafana.app/area", Pattern: "foo"},
+			},
+			Limit: 20,
+		})
+		require.Equal(t, http.StatusOK, code)
+		assert.Equal(t, []string{"searchapi-labels-team"}, names(area))
+
+		// A missing label is evaluated as an empty value, so negation includes
+		// dashboards with no team label.
+		notTeam, code := search(t, ctx, helper.Org1.Admin, gvr, searchV0.SearchQuery{
+			Where: &searchV0.WhereNode{
+				Regex: &searchV0.RegexPredicate{Field: "labels.team", Pattern: "Team.*", Negate: true},
+			},
+			Limit: 20,
+		})
+		require.Equal(t, http.StatusOK, code)
+		assert.Contains(t, names(notTeam), "searchapi-cpu")
+		assert.Contains(t, names(notTeam), "searchapi-labels-case")
+		assert.NotContains(t, names(notTeam), "searchapi-labels-team")
 	})
 
 	// The backend owns the regex subset and the case-preservation rule, and reports
