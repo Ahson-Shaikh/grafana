@@ -11,10 +11,18 @@ import { config } from '@grafana/runtime';
 import { contextSrv } from 'app/core/services/context_srv';
 import { AccessControlAction } from 'app/types/accessControl';
 
-import { appNavConfigFor } from './appNavConfig';
+import { appNavConfigFor, type AppNavConfig } from './appNavConfig';
 import { buildStaticNavTree } from './buildStaticNavTree';
 import { NavID, NavWeight, PLUGIN_SECTION_SHELLS } from './constants';
-import { appendIntoSection, applyAppSubUrl, pluginPageId, pruneEmptyNavSections, sortNavTree } from './utils';
+import { PLUGIN_NAV_OVERRIDES } from './pluginNavOverrides';
+import {
+  appendIntoSection,
+  applyAppSubUrl,
+  pluginPageId,
+  pruneEmptyNavSections,
+  sortNavTree,
+  standalonePluginPageIdFromText,
+} from './utils';
 
 /**
  * Merges app-plugin nav items into the client-built tree and returns a new
@@ -22,7 +30,12 @@ import { appendIntoSection, applyAppSubUrl, pluginPageId, pruneEmptyNavSections,
  * pkg/services/navtree/navtreeimpl/applinks.go.
  *
  * Apps are placed in the section their nav config names, falling back to
- * "More apps" under their own plugin.json name.
+ * "More apps" under their own plugin.json name, and the cross-plugin overrides
+ * are applied once every app is known.
+ *
+ * The [navigation.app_sections] and [navigation.app_standalone_pages] INI
+ * overrides are not reproduced; app_sections needs a backend half to deliver it
+ * through frontend settings.
  *
  * Permanent divergences from the Go builder: per-org plugin enablement is not
  * readable client-side, and nor is the assistant's jsonData gating beyond the
@@ -31,6 +44,8 @@ import { appendIntoSection, applyAppSubUrl, pluginPageId, pruneEmptyNavSections,
  * have no URL to link to.
  */
 export function mergePluginNavIntoTree(apps: AppPluginConfig[]): NavModelItem[] {
+  const installedPluginIds: ReadonlySet<string> = new Set(apps.map((app) => app.id));
+
   // Build a fresh static tree rather than merging into the current slice
   // state, so a re-merge cannot duplicate plugin items. Runtime-filled
   // containers are carried over separately by carryOverRuntimeChildren.
@@ -46,12 +61,18 @@ export function mergePluginNavIntoTree(apps: AppPluginConfig[]): NavModelItem[] 
     }
   }
 
+  for (const override of PLUGIN_NAV_OVERRIDES) {
+    if (override.when(tree, installedPluginIds)) {
+      tree = override.apply(tree, installedPluginIds);
+    }
+  }
+
   return applyAppSubUrl(sortNavTree(pruneEmptyNavSections(tree)));
 }
 
 /**
  * Builds the nav items for one app plugin and returns a new tree with the app
- * link placed into its section.
+ * link (or its hoisted pages) placed into its section.
  */
 function addAppToTree(tree: NavModelItem[], app: AppPluginConfig): NavModelItem[] {
   const { appLink, hasAccessiblePages } = buildAppLink(app);
@@ -153,7 +174,7 @@ function placeAppInSection(tree: NavModelItem[], app: AppPluginConfig, appLink: 
   const navConfig = appNavConfigFor(app.id);
   const sectionId = navConfig?.sectionId ?? NavID.apps;
 
-  const sectionChildren = [appLink];
+  const sectionChildren = navConfig?.hoistPages ? hoistAppPages(appLink, navConfig.hoistPages) : [appLink];
 
   const placed = appendIntoSection(tree, sectionId, sectionChildren);
   if (placed) {
@@ -185,6 +206,30 @@ function placeAppInSection(tree: NavModelItem[], app: AppPluginConfig, appLink: 
       ...(imgFromAppLogo && app.info?.logos && { img: config.appSubUrl + app.info.logos.large }),
     },
   ];
+}
+
+// Hoisted pages without a pinned slot sort above the section's app entries
+// (which sit at small positive weights) while keeping their own relative order
+const HOISTED_PAGE_WEIGHT_OFFSET = -100;
+
+/**
+ * Expands an app's pages into its target section as standalone entries instead
+ * of nesting them under an app node (`hoistPages` in the app's nav config).
+ * Pages pinned by `slotWeightByPath` take that section slot; the rest sort
+ * above the section's app entries in their own order.
+ */
+function hoistAppPages(
+  appLink: NavModelItem,
+  { slotWeightByPath = {} }: NonNullable<AppNavConfig['hoistPages']>
+): NavModelItem[] {
+  return (appLink.children ?? []).map((child) => {
+    const slotWeight = child.url ? slotWeightByPath[child.url] : undefined;
+    return {
+      ...child,
+      sortWeight: slotWeight ?? HOISTED_PAGE_WEIGHT_OFFSET + (child.sortWeight ?? 0),
+      id: standalonePluginPageIdFromText(child.text ?? ''),
+    };
+  });
 }
 
 /**

@@ -12,6 +12,13 @@ export interface AppNavConfig {
   subTitle?: string;
   isNew?: boolean;
   /**
+   * Render the app's pages as standalone entries of the target section instead
+   * of nesting them under an app node (asserts today; the assistant plans the
+   * same). `slotWeightByPath` pins specific pages to a section slot; the rest
+   * sort above the section's app entries in their own order.
+   */
+  hoistPages?: { slotWeightByPath?: Record<string, number> };
+  /**
    * The app is a single page living at the app URL (`/a/<id>`). Such a page
    * folds into the app link, which would normally leave the app childless and
    * unplaced; this places the link anyway, as a leaf entry of its section
@@ -22,12 +29,18 @@ export interface AppNavConfig {
   filterInclude?: (include: PluginInclude) => boolean;
 }
 
-// App plugin ids referenced by the placement rules below
-const APP_OBSERVABILITY_APP_ID = 'grafana-app-observability-app';
+// App plugin ids referenced by nav placement rules and cross-plugin overrides
+export const APP_OBSERVABILITY_APP_ID = 'grafana-app-observability-app';
 const ASSERTS_APP_ID = 'grafana-asserts-app';
-const ASSISTANT_APP_ID = 'grafana-assistant-app';
-const SLO_APP_ID = 'grafana-slo-app';
-const SERVICECENTER_APP_ID = 'grafana-servicecenter-app';
+export const ASSISTANT_APP_ID = 'grafana-assistant-app';
+export const ASSISTANT_ONBOARDING_APP_ID = 'grafana-assistant-onboarding-app';
+export const ADAPTIVE_TELEMETRY_UMBRELLA_APP_ID = 'grafana-adaptivetelemetry-app';
+export const SLO_APP_ID = 'grafana-slo-app';
+export const SERVICECENTER_APP_ID = 'grafana-servicecenter-app';
+export const MAINTENANCE_WINDOWS_APP_ID = 'grafana-maintenancewindows-app';
+
+export const ASSERTS_SERVICES_PATH = `/a/${ASSERTS_APP_ID}/services`;
+export const SLO_SERVICES_PATH = `/a/${SLO_APP_ID}/services`;
 
 // The assistant pages OSS deployments get (mirrors assistantOSSNavigationPaths
 // in the Go builder)
@@ -36,6 +49,11 @@ const ASSISTANT_OSS_NAV_PATHS = new Set([
   `/a/${ASSISTANT_APP_ID}/workspace`,
   `/a/${ASSISTANT_APP_ID}/settings`,
 ]);
+
+// The asserts services page takes the same Observability slot as the App
+// Observability entry — only one of the two is ever shown. The value mirrors
+// the weight in the Go builder's table (applinks.go), as every weight here does.
+const APP_OBSERVABILITY_SORT_WEIGHT = 4;
 
 /**
  * Where known app plugins go in the nav. An app with no entry here is listed
@@ -60,7 +78,7 @@ const ASSISTANT_OSS_NAV_PATHS = new Set([
  * },
  * ```
  *
- * `singlePage` and `filterInclude` cover rarer placements and are
+ * `hoistPages`, `singlePage` and `filterInclude` cover rarer placements and are
  * documented on AppNavConfig above. Keep entries in step with the equivalent
  * table in the Go builder (applinks.go), which serves the same nav when the
  * client-built tree is off.
@@ -84,6 +102,7 @@ const APP_NAV_CONFIG: Record<string, AppNavConfig> = {
     sectionId: NavID.observability,
     sortWeight: 2,
     icon: 'asserts',
+    hoistPages: { slotWeightByPath: { [ASSERTS_SERVICES_PATH]: APP_OBSERVABILITY_SORT_WEIGHT } },
   },
   'grafana-kowalski-app': {
     sectionId: NavID.observability,
@@ -92,7 +111,7 @@ const APP_NAV_CONFIG: Record<string, AppNavConfig> = {
   },
   [APP_OBSERVABILITY_APP_ID]: {
     sectionId: NavID.observability,
-    sortWeight: 4,
+    sortWeight: APP_OBSERVABILITY_SORT_WEIGHT,
     text: 'Application',
   },
   'grafana-dbo11y-app': {
