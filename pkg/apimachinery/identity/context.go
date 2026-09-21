@@ -70,11 +70,28 @@ func WithInnermostServiceIdentity(ctx context.Context, svcIdentity string) conte
 	return context.WithValue(ctx, innermostServiceIdentityKey{}, svcIdentity)
 }
 
-// InnermostServiceIdentityFrom returns the innermost service identity stored in the context, and whether it was present.
-// This is useful for gRPC services to propagate and recover the caller service identity, in the context of audit logging.
+// InnermostServiceIdentityFrom returns the innermost service identity stored
+// directly in the context or carried by the authenticated request claims.
 func InnermostServiceIdentityFrom(ctx context.Context) (string, bool) {
-	svcIdentity, ok := ctx.Value(innermostServiceIdentityKey{}).(string)
-	return svcIdentity, ok && svcIdentity != ""
+	if svcIdentity, ok := ctx.Value(innermostServiceIdentityKey{}).(string); ok {
+		return svcIdentity, svcIdentity != ""
+	}
+
+	authInfo, ok := types.AuthInfoFrom(ctx)
+	if !ok {
+		return "", false
+	}
+	extra := authInfo.GetExtra()
+	if svcIdentities, exists := extra[authn.InnermostServiceIdentityKey]; exists {
+		if len(svcIdentities) == 0 {
+			return "", false
+		}
+		return svcIdentities[0], svcIdentities[0] != ""
+	}
+	if svcIdentities := extra[authn.ServiceIdentityKey]; len(svcIdentities) > 0 {
+		return svcIdentities[0], svcIdentities[0] != ""
+	}
+	return "", false
 }
 
 func checkNilRequester(r Requester) bool {

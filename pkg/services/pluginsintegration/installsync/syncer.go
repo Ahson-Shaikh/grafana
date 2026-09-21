@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	ServiceName          = "plugins.installsync"
+	ServiceName          = install.PluginStoreSyncServiceIdentity
 	syncerLockActionName = "plugin-install-api-sync"
 )
 
@@ -288,7 +288,8 @@ func (s *syncer) syncAllNamespaces(ctx context.Context, source install.Source, i
 	var errs []error
 	for _, org := range orgs {
 		namespace := s.namespaceMapper(org.ID)
-		nsCtx := identity.WithServiceIdentityForSingleNamespaceContext(ctx, namespace)
+		nsCtx := identity.WithServiceIdentityForSingleNamespaceContext(ctx, namespace, identity.WithServiceIdentityName(ServiceName))
+		nsCtx = apiserver.WithClientFieldManager(nsCtx, ServiceName)
 		if err := s.syncNamespace(nsCtx, namespace, source, installedPlugins); err != nil {
 			errs = append(errs, fmt.Errorf("sync namespace %q: %w", namespace, err))
 		}

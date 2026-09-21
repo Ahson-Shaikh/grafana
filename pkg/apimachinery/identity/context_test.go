@@ -167,3 +167,43 @@ func TestWithServiceIdentity(t *testing.T) {
 		require.Empty(t, fromCtx.GetExtra()[string(authn.ServiceIdentityKey)])
 	})
 }
+
+func TestInnermostServiceIdentityFrom(t *testing.T) {
+	t.Run("reads an in-process named service identity", func(t *testing.T) {
+		ctx := identity.WithServiceIdentityContext(context.Background(), 1, identity.WithServiceIdentityName("plugin-sync"))
+
+		serviceIdentity, ok := identity.InnermostServiceIdentityFrom(ctx)
+		require.True(t, ok)
+		require.Equal(t, "plugin-sync", serviceIdentity)
+	})
+
+	t.Run("reads the innermost identity from authenticated token claims", func(t *testing.T) {
+		authInfo := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
+			Rest: authn.AccessTokenClaims{
+				ServiceIdentity: "plugins-api",
+				Actor: &authn.ActorClaims{
+					ServiceIdentity: "plugin-sync",
+				},
+			},
+		})
+		ctx := authtypes.WithAuthInfo(context.Background(), authInfo)
+
+		serviceIdentity, ok := identity.InnermostServiceIdentityFrom(ctx)
+		require.True(t, ok)
+		require.Equal(t, "plugin-sync", serviceIdentity)
+	})
+
+	t.Run("does not fall back to the outer service when the actor has no service identity", func(t *testing.T) {
+		authInfo := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
+			Rest: authn.AccessTokenClaims{
+				ServiceIdentity: "plugins-api",
+				Actor:           &authn.ActorClaims{},
+			},
+		})
+		ctx := authtypes.WithAuthInfo(context.Background(), authInfo)
+
+		serviceIdentity, ok := identity.InnermostServiceIdentityFrom(ctx)
+		require.False(t, ok)
+		require.Empty(t, serviceIdentity)
+	})
+}

@@ -99,14 +99,57 @@ func newPluginStorage(
 	if !ok {
 		return nil, fmt.Errorf("plugin storage must be *genericregistry.Store, got %T", wrapped)
 	}
-	hookProvider := NewDefaultPluginStorageHookProvider(store, logger, metaManager)
+	storage := &pluginStorageWithHooks{Store: store, logger: logger}
+	hookProvider := NewDefaultPluginStorageHookProvider(storage, logger, metaManager)
 	beginHooks := PluginStorageBeginHookProvider(hookProvider)
 	afterHooks := PluginStorageAfterHookProvider(hookProvider)
 	if wrapAfter != nil {
 		afterHooks = wrapAfter(afterHooks)
 	}
+	storage.afterHooks = afterHooks
 	registerPluginStorageHooks(store, logger, beginHooks, afterHooks)
-	return store, nil
+	return storage, nil
+}
+
+type pluginStorageWithHooks struct {
+	*genericregistry.Store
+	logger     logging.Logger
+	afterHooks PluginStorageAfterHookProvider
+}
+
+func (s *pluginStorageWithHooks) Create(ctx context.Context, obj runtime.Object, createValidation rest.ValidateObjectFunc, options *metav1.CreateOptions) (runtime.Object, error) {
+	result, err := s.Store.Create(ctx, obj, createValidation, options)
+	if err != nil {
+		return result, err
+	}
+	if plugin, ok := pluginFromRuntimeObject(result); ok {
+		hookCtx, finish := newPluginStorageHookContext(ctx, plugin.Namespace, "pluginStorage.afterCreate", s.logger)
+		finish(s.afterHooks.AfterCreate(hookCtx, plugin, options))
+	}
+	return result, nil
+}
+
+func (s *pluginStorageWithHooks) Update(ctx context.Context, name string, objInfo rest.UpdatedObjectInfo, createValidation rest.ValidateObjectFunc, updateValidation rest.ValidateObjectUpdateFunc, forceAllowCreate bool, options *metav1.UpdateOptions) (runtime.Object, bool, error) {
+	result, created, err := s.Store.Update(ctx, name, objInfo, createValidation, updateValidation, forceAllowCreate, options)
+	if err != nil {
+		return result, created, err
+	}
+	if plugin, ok := pluginFromRuntimeObject(result); ok {
+		if created {
+			createOptions := &metav1.CreateOptions{}
+			if options != nil {
+				createOptions.DryRun = options.DryRun
+				createOptions.FieldManager = options.FieldManager
+				createOptions.FieldValidation = options.FieldValidation
+			}
+			hookCtx, finish := newPluginStorageHookContext(ctx, plugin.Namespace, "pluginStorage.afterCreate", s.logger)
+			finish(s.afterHooks.AfterCreate(hookCtx, plugin, createOptions))
+		} else {
+			hookCtx, finish := newPluginStorageHookContext(ctx, plugin.Namespace, "pluginStorage.afterUpdate", s.logger)
+			finish(s.afterHooks.AfterUpdate(hookCtx, plugin, options))
+		}
+	}
+	return result, created, nil
 }
 
 func NewDefaultPluginStorageHookProvider(storage pluginStorage, logger logging.Logger, metaManager *meta.ProviderManager) PluginStorageHookProvider {
@@ -149,19 +192,6 @@ func registerPluginStorageHooks(store *genericregistry.Store, logger logging.Log
 		}, nil
 	}
 
-	afterCreate := store.AfterCreate
-	store.AfterCreate = func(obj runtime.Object, options *metav1.CreateOptions) {
-		if afterCreate != nil {
-			afterCreate(obj, options)
-		}
-		plugin, ok := pluginFromRuntimeObject(obj)
-		if !ok {
-			return
-		}
-		ctx, finish := newPluginStorageHookContext(plugin.Namespace, "pluginStorage.afterCreate", logger)
-		finish(afterHooks.AfterCreate(ctx, plugin, options))
-	}
-
 	beginUpdate := store.BeginUpdate
 	store.BeginUpdate = func(ctx context.Context, obj, old runtime.Object, options *metav1.UpdateOptions) (genericregistry.FinishFunc, error) {
 		finish := finishNoOp
@@ -194,19 +224,6 @@ func registerPluginStorageHooks(store *genericregistry.Store, logger logging.Log
 		}, nil
 	}
 
-	afterUpdate := store.AfterUpdate
-	store.AfterUpdate = func(obj runtime.Object, options *metav1.UpdateOptions) {
-		if afterUpdate != nil {
-			afterUpdate(obj, options)
-		}
-		plugin, ok := pluginFromRuntimeObject(obj)
-		if !ok {
-			return
-		}
-		ctx, finish := newPluginStorageHookContext(plugin.Namespace, "pluginStorage.afterUpdate", logger)
-		finish(afterHooks.AfterUpdate(ctx, plugin, options))
-	}
-
 	afterDelete := store.AfterDelete
 	store.AfterDelete = func(obj runtime.Object, options *metav1.DeleteOptions) {
 		if afterDelete != nil {
@@ -216,7 +233,7 @@ func registerPluginStorageHooks(store *genericregistry.Store, logger logging.Log
 		if !ok {
 			return
 		}
-		ctx, finish := newPluginStorageHookContext(plugin.Namespace, "pluginStorage.afterDelete", logger)
+		ctx, finish := newPluginStorageHookContext(context.Background(), plugin.Namespace, "pluginStorage.afterDelete", logger)
 		err := afterHooks.AfterDelete(ctx, plugin, options)
 		finish(err)
 	}
@@ -797,8 +814,12 @@ func pluginNamespace(ctx context.Context, plugin *pluginsv0alpha1.Plugin) string
 	return ""
 }
 
-func newPluginStorageHookContext(namespace string, operation string, logger logging.Logger) (context.Context, func(error)) {
-	ctx := identity.WithServiceIdentityForSingleNamespaceContext(context.Background(), namespace)
+func newPluginStorageHookContext(parent context.Context, namespace string, operation string, logger logging.Logger) (context.Context, func(error)) {
+	serviceIdentity, hasServiceIdentity := identity.InnermostServiceIdentityFrom(parent)
+	ctx := identity.WithServiceIdentityForSingleNamespaceContext(context.WithoutCancel(parent), namespace)
+	if hasServiceIdentity {
+		ctx = identity.WithInnermostServiceIdentity(ctx, serviceIdentity)
+	}
 	if namespace != "" {
 		ctx = request.WithNamespace(ctx, namespace)
 	}

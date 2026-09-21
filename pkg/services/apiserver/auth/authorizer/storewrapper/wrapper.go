@@ -209,6 +209,9 @@ func (w *Wrapper) storeCtx(ctx context.Context) context.Context {
 	if user, err := identity.GetRequester(ctx); err == nil && user.GetUID() != "" {
 		srvCtx = identity.WithOriginalIdentityUID(srvCtx, user.GetUID())
 	}
+	if serviceIdentity, ok := identity.InnermostServiceIdentityFrom(ctx); ok {
+		srvCtx = identity.WithInnermostServiceIdentity(srvCtx, serviceIdentity)
+	}
 
 	return srvCtx
 }

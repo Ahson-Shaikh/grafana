@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grafana/authlib/authn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -77,6 +78,23 @@ func matchesServiceIdentity() func(context.Context) bool {
 	return func(ctx context.Context) bool {
 		return identity.IsServiceIdentity(ctx)
 	}
+}
+
+func TestWrapper_StoreContextPreservesInnermostServiceIdentity(t *testing.T) {
+	authInfo := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
+		Rest: authn.AccessTokenClaims{
+			ServiceIdentity: "plugins-api",
+			Actor: &authn.ActorClaims{
+				ServiceIdentity: "plugins.installsync",
+			},
+		},
+	})
+	ctx := types.WithAuthInfo(context.Background(), authInfo)
+	wrapper := &Wrapper{}
+
+	serviceIdentity, ok := identity.InnermostServiceIdentityFrom(wrapper.storeCtx(ctx))
+	require.True(t, ok)
+	require.Equal(t, "plugins.installsync", serviceIdentity)
 }
 
 func TestWrapper_Create(t *testing.T) {

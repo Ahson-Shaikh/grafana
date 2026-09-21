@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/grafana/authlib/authn"
 	"github.com/grafana/dskit/backoff"
 	sdkK8s "github.com/grafana/grafana-app-sdk/k8s"
 	"github.com/grafana/grafana-app-sdk/logging"
@@ -21,6 +22,7 @@ import (
 
 	pluginsv0alpha1 "github.com/grafana/grafana/apps/plugins/pkg/apis/plugins/v0alpha1"
 	"github.com/grafana/grafana/apps/plugins/pkg/app/install"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	infraserverlock "github.com/grafana/grafana/pkg/infra/serverlock"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
@@ -643,7 +645,10 @@ func TestSyncer_syncAllNamespaces_ContinuesAfterNamespaceError(t *testing.T) {
 
 	var listedNamespaces []string
 	fakeClient := &fakePluginInstallClient{
-		listAllFunc: func(_ context.Context, namespace string, _ resource.ListOptions) (*pluginsv0alpha1.PluginList, error) {
+		listAllFunc: func(ctx context.Context, namespace string, _ resource.ListOptions) (*pluginsv0alpha1.PluginList, error) {
+			requester, err := identity.GetRequester(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []string{ServiceName}, requester.GetExtra()[authn.ServiceIdentityKey])
 			listedNamespaces = append(listedNamespaces, namespace)
 			if namespace == "org-1" {
 				return nil, errors.New("list failed")

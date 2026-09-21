@@ -710,21 +710,22 @@ func TestPluginStorage_DecoratorWrapsDefaultProvider(t *testing.T) {
 	// The decorator receives the default after provider, built around the store.
 	require.IsType(t, &pluginStorageHookProvider{}, gotBase)
 
-	store := storage.(*genericregistry.Store)
+	wrapped := storage.(*pluginStorageWithHooks)
+	store := wrapped.Store
 	parent := plugin("default", "parent-app", "1.0.0", "")
 	finish, err := store.BeginCreate(context.Background(), parent, &metav1.CreateOptions{})
 	require.NoError(t, err)
 	finish(context.Background(), true)
 	require.Equal(t, "child", parent.Annotations[appliedChildrenAnnotation])
-	store.AfterCreate(parent, &metav1.CreateOptions{})
+	require.NoError(t, wrapped.afterHooks.AfterCreate(context.Background(), parent, &metav1.CreateOptions{}))
 
 	updated := plugin("default", "parent-app", "1.0.0", "")
 	finish, err = store.BeginUpdate(context.Background(), updated, plugin("default", "parent-app", "0.9.0", ""), &metav1.UpdateOptions{})
 	require.NoError(t, err)
 	finish(context.Background(), true)
 	require.Equal(t, "child", updated.Annotations[appliedChildrenAnnotation])
-	store.AfterUpdate(updated, &metav1.UpdateOptions{})
-	store.AfterDelete(updated, &metav1.DeleteOptions{})
+	require.NoError(t, wrapped.afterHooks.AfterUpdate(context.Background(), updated, &metav1.UpdateOptions{}))
+	require.NoError(t, wrapped.afterHooks.AfterDelete(context.Background(), updated, &metav1.DeleteOptions{}))
 
 	require.Equal(t, []string{
 		"afterCreate",
@@ -749,22 +750,23 @@ func TestPluginStorage_DecoratorRunsForNonAppPlugin(t *testing.T) {
 	}), decorate)
 	require.NoError(t, err)
 
-	store := storage.(*genericregistry.Store)
+	wrapped := storage.(*pluginStorageWithHooks)
+	store := wrapped.Store
 	ds := plugin("default", "grafana-foo-datasource", "1.0.0", "")
 	finish, err := store.BeginCreate(context.Background(), ds, &metav1.CreateOptions{})
 	require.NoError(t, err)
 	finish(context.Background(), true)
 	require.NotContains(t, ds.Annotations, appliedChildrenAnnotation,
 		"a non-app plugin must not be stamped with applied-children")
-	store.AfterCreate(ds, &metav1.CreateOptions{})
+	require.NoError(t, wrapped.afterHooks.AfterCreate(context.Background(), ds, &metav1.CreateOptions{}))
 
 	updated := plugin("default", "grafana-foo-datasource", "2.0.0", "")
 	finish, err = store.BeginUpdate(context.Background(), updated, plugin("default", "grafana-foo-datasource", "1.0.0", ""), &metav1.UpdateOptions{})
 	require.NoError(t, err)
 	finish(context.Background(), true)
 	require.NotContains(t, updated.Annotations, appliedChildrenAnnotation)
-	store.AfterUpdate(updated, &metav1.UpdateOptions{})
-	store.AfterDelete(updated, &metav1.DeleteOptions{})
+	require.NoError(t, wrapped.afterHooks.AfterUpdate(context.Background(), updated, &metav1.UpdateOptions{}))
+	require.NoError(t, wrapped.afterHooks.AfterDelete(context.Background(), updated, &metav1.DeleteOptions{}))
 
 	require.Equal(t, []string{
 		"afterCreate",
