@@ -25,7 +25,7 @@ import {
 import { DataSourcePicker } from 'app/features/datasources/components/picker/DataSourcePicker';
 import { ProvisioningAwareFolderPicker } from 'app/features/provisioning/components/Shared/ProvisioningAwareFolderPicker';
 
-import { useRecordingRulesTargetUids } from '../../hooks/useRecordingRulesTargetUids';
+import { useRecordingRulesTargetDataSourcesByUid } from '../../hooks/useRecordingRulesTargetDataSourcesByUid';
 import { getAlertRulesNavId } from '../../navigation/useAlertRulesNav';
 import { type Folder } from '../../types/rule-form';
 import { DataSourceType } from '../../utils/datasource';
@@ -300,7 +300,7 @@ function YamlTargetDataSourceField() {
     setValue,
     getValues,
   } = useFormContext<ImportFormValues>();
-  const recordingRulesTargetUids = useRecordingRulesTargetUids();
+  const recordingRulesTargetDataSourcesByUid = useRecordingRulesTargetDataSourcesByUid();
 
   return (
     <Field
@@ -327,7 +327,7 @@ function YamlTargetDataSourceField() {
             onChange={(ds: DataSourceInstanceSettings) => {
               setValue('yamlImportTargetDatasourceUID', ds.uid);
               const recordingRulesTargetDs = getValues('targetDatasourceUID');
-              if (!recordingRulesTargetDs && recordingRulesTargetUids.has(ds.uid)) {
+              if (!recordingRulesTargetDs && recordingRulesTargetDataSourcesByUid.has(ds.uid)) {
                 setValue('targetDatasourceUID', ds.uid);
               }
             }}
@@ -350,7 +350,7 @@ function TargetDataSourceForRecordingRulesField() {
     formState: { errors },
     setValue,
   } = useFormContext<ImportFormValues>();
-  const recordingRulesTargetUids = useRecordingRulesTargetUids();
+  const recordingRulesTargetDataSourcesByUid = useRecordingRulesTargetDataSourcesByUid();
 
   return (
     <Field
@@ -372,7 +372,7 @@ function TargetDataSourceForRecordingRulesField() {
             current={field.value}
             inputId="recording-rules-target-data-source"
             noDefault
-            filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetUids.has(ds.uid)}
+            filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetDataSourcesByUid.has(ds.uid)}
             onChange={(ds: DataSourceInstanceSettings) => {
               setValue('targetDatasourceUID', ds.uid);
             }}
@@ -447,7 +447,7 @@ function DataSourceField() {
     setValue,
     getValues,
   } = useFormContext<ImportFormValues>();
-  const recordingRulesTargetUids = useRecordingRulesTargetUids();
+  const recordingRulesTargetDataSourcesByUid = useRecordingRulesTargetDataSourcesByUid();
 
   return (
     <Field
@@ -486,7 +486,7 @@ function DataSourceField() {
               // If we've chosen a Prometheus data source, we can set the recording rules target data source to the same as the source
               const recordingRulesTargetDs = getValues('targetDatasourceUID');
               if (!recordingRulesTargetDs) {
-                const targetDataSourceUID = recordingRulesTargetUids.has(ds.uid) ? ds.uid : undefined;
+                const targetDataSourceUID = recordingRulesTargetDataSourcesByUid.has(ds.uid) ? ds.uid : undefined;
                 setValue('targetDatasourceUID', targetDataSourceUID);
               }
             }}

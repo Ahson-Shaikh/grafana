@@ -27,7 +27,7 @@ import { DataSourcePicker } from 'app/features/datasources/components/picker/Dat
 import { ProvisioningAwareFolderPicker } from 'app/features/provisioning/components/Shared/ProvisioningAwareFolderPicker';
 import { type RulerRulesConfigDTO } from 'app/types/unified-alerting-dto';
 
-import { useRecordingRulesTargetUids } from '../../../hooks/useRecordingRulesTargetUids';
+import { useRecordingRulesTargetDataSourcesByUid } from '../../../hooks/useRecordingRulesTargetDataSourcesByUid';
 import { DataSourceType } from '../../../utils/datasource';
 import { stringifyErrorLike } from '../../../utils/misc';
 import { CreateNewFolder } from '../../create-folder/CreateNewFolder';
@@ -69,7 +69,7 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
     formState: { errors },
   } = useFormContext<ImportFormValues>();
 
-  const recordingRulesTargetUids = useRecordingRulesTargetUids();
+  const recordingRulesTargetDataSourcesByUid = useRecordingRulesTargetDataSourcesByUid();
 
   const [
     rulesSource,
@@ -298,7 +298,7 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
                           onChange(ds.uid);
                           setValue('rulesDatasourceName', ds.name);
                           // Auto-populate target datasource if not yet selected
-                          if (!getValues('targetDatasourceUID') && recordingRulesTargetUids.has(ds.uid)) {
+                          if (!getValues('targetDatasourceUID') && recordingRulesTargetDataSourcesByUid.has(ds.uid)) {
                             setValue('targetDatasourceUID', ds.uid);
                           }
                         }}
@@ -486,7 +486,7 @@ export function Step2Content({ step1Completed, step1Skipped, canImport }: Step2C
                     current={field.value}
                     inputId="recording-rules-target-data-source"
                     noDefault
-                    filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetUids.has(ds.uid)}
+                    filter={(ds: DataSourceInstanceSettings) => recordingRulesTargetDataSourcesByUid.has(ds.uid)}
                     onChange={(ds: DataSourceInstanceSettings) => {
                       setValue('targetDatasourceUID', ds.uid);
                     }}
