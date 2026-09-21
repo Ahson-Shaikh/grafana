@@ -75,6 +75,7 @@ const MaxConcurrentZanzanaWrites = 20
 
 func RegisterAPIService(
 	cfg *setting.Cfg,
+	startupFeatures StartupFeatures,
 	cfgProvider configprovider.ConfigProvider,
 	apiregistration builder.APIRegistrar,
 	ssoService ssosettings.Service,
@@ -194,7 +195,12 @@ func RegisterAPIService(
 		),
 		ssoLoginConfig:  sso.NewLoginConfigHandler(cfg, ssoService),
 		userPermissions: userpermissions.NewHandler(userPermissionsClient, cfg.IDUseExternalGroupsForGroupsClaim),
-		ofClient:        openfeature.NewDefaultClient(),
+	}
+	if features := startupFeatures.Snapshot(); features != nil {
+		builder.features = features
+		builder.logger.Info("Resolved IAM startup configuration", "apis", features.EnabledAPIs(), "zanzanaSync", features.ZanzanaSync, "serviceAccountResourcePermissions", features.ServiceAccountResourcePermissions)
+	} else {
+		builder.ofClient = openfeature.NewDefaultClient()
 	}
 	builder.userSearchHandler = user.NewSearchHandler(tracing, builder.userSearchClient, cfg, accessClient)
 	builder.teamSearchHandler = team.NewSearchHandler(tracing, builder.teamSearchClient, accessClient)
@@ -239,7 +245,6 @@ func NewAPIService(
 	)
 
 	builder := &IdentityAccessManagementAPIBuilder{
-		ofClient:                openfeature.NewDefaultClient(),
 		store:                   store,
 		userLegacyStore:         user.NewLegacyStore(store, accessClient, tracingService),
 		saLegacyStore:           serviceaccount.NewLegacyStore(store, accessClient, tracingService),
@@ -335,6 +340,9 @@ func NewAPIService(
 	}
 	for _, opt := range opts {
 		opt(builder)
+	}
+	if builder.features == nil {
+		builder.ofClient = openfeature.NewDefaultClient()
 	}
 	return builder
 }
