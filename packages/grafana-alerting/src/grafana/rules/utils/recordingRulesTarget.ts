@@ -1,4 +1,8 @@
-import { type DataSourceInstanceListItem, type DataSourceInstanceSettings, type DataSourceJsonData } from '@grafana/data';
+import {
+  type DataSourceInstanceListItem,
+  type DataSourceInstanceSettings,
+  type DataSourceJsonData,
+} from '@grafana/data';
 import { getDataSourceInstanceList, getDataSourceInstanceSettings } from '@grafana/plugin-compat/datasources';
 
 export const SUPPORTED_EXTERNAL_PROMETHEUS_FLAVORED_RULE_SOURCE_TYPES = [
